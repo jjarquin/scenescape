@@ -15,8 +15,8 @@ namespace classification {
     }
 
     // If classification probabilities are well defined these terms should be zero
-    double unknownA = rv::clamp<double>(1.0 - classificationA.sum(), 0., 1.0);
-    double unknownB = rv::clamp<double>(1.0 - classificationB.sum(), 0., 1.0);
+    double unknownA = std::clamp<double>(1.0 - classificationA.sum(), 0., 1.0);
+    double unknownB = std::clamp<double>(1.0 - classificationB.sum(), 0., 1.0);
 
     auto elementCombination = classificationA.array() * classificationB.array();
 
@@ -46,7 +46,7 @@ namespace classification {
   Classification ClassificationData::classification(const std::string & className, const double probability) const
   {
     std::size_t j = classIndex(className);
-    auto unknown = rv::clamp(1.0 - probability, 0.0, 1.0);
+    auto unknown = std::clamp(1.0 - probability, 0.0, 1.0);
     Classification probabilities = Classification::Constant(classes.size(), unknown / std::max(static_cast<double>(classes.size() - 1), 1.0));
     probabilities(j) = probability;
     return probabilities;

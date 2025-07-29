@@ -3,55 +3,54 @@
 
 #include "rv/Utils.hpp"
 #include "rv/tracking/TrackManager.hpp"
-#include <iostream>
 
 namespace rv {
 namespace tracking {
 
-Id TrackManager::createTrack(TrackedObject object, const std::chrono::system_clock::time_point &timestamp)
+boost::uuids::uuid TrackManager::createTrack(TrackedObject object, const std::chrono::system_clock::time_point &timestamp)
 {
   if (mAutoIdGeneration)
   {
-    mCurrentId++;
-    object.id = mCurrentId;
+    object.uuid = mUuidGenerator();
   }
 
-  mKalmanEstimators[object.id].initialize(object, timestamp, mConfig.mDefaultProcessNoise, mConfig.mDefaultMeasurementNoise, mConfig.mInitStateCovariance, mConfig.mMotionModels);
+  mKalmanEstimators[object.uuid].initialize(object, timestamp, mConfig.mDefaultProcessNoise, mConfig.mDefaultMeasurementNoise, mConfig.mInitStateCovariance, mConfig.mMotionModels);
 
   // Initialize non measurement and tracked frames counters
-  mNonMeasurementFrames[object.id] = 0;
-  mNumberOfTrackedFrames[object.id] = 0;
-  return object.id;
+  mNonMeasurementFrames[object.uuid] = 0;
+  mNumberOfTrackedFrames[object.uuid] = 0;
+
+  return object.uuid;
 }
 
-void TrackManager::deleteTrack(const Id &id)
+void TrackManager::deleteTrack(const boost::uuids::uuid &uuid)
 {
-  if (isSuspended(id))
+  if (isSuspended(uuid))
   {
-    reactivateTrack(id);
+    reactivateTrack(uuid);
   }
 
-  mKalmanEstimators.erase(id);
-  mNonMeasurementFrames.erase(id);
-  mNumberOfTrackedFrames.erase(id);
+  mKalmanEstimators.erase(uuid);
+  mNonMeasurementFrames.erase(uuid);
+  mNumberOfTrackedFrames.erase(uuid);
 }
 
-void TrackManager::suspendTrack(const Id &id)
+void TrackManager::suspendTrack(const boost::uuids::uuid &uuid)
 {
-  mSuspendedKalmanEstimators[id] = std::move(mKalmanEstimators.at(id));
-  mKalmanEstimators.erase(id);
-  mNonMeasurementFrames.erase(id);
+  mSuspendedKalmanEstimators[uuid] = std::move(mKalmanEstimators.at(uuid));
+  mKalmanEstimators.erase(uuid);
+  mNonMeasurementFrames.erase(uuid);
 }
 
-void TrackManager::reactivateTrack(const Id &id)
+void TrackManager::reactivateTrack(const boost::uuids::uuid &uuid)
 {
-  mKalmanEstimators[id] = std::move(mSuspendedKalmanEstimators.at(id));
+  mKalmanEstimators[uuid] = std::move(mSuspendedKalmanEstimators.at(uuid));
 
   // Initialize non measurement and tracked frames counters
-  mNonMeasurementFrames[id] = 0;
-  mNumberOfTrackedFrames[id] = mConfig.mMaxNumberOfUnreliableFrames - mConfig.mReactivationFrames;
+  mNonMeasurementFrames[uuid] = 0;
+  mNumberOfTrackedFrames[uuid] = mConfig.mMaxNumberOfUnreliableFrames - mConfig.mReactivationFrames;
 
-  mSuspendedKalmanEstimators.erase(id);
+  mSuspendedKalmanEstimators.erase(uuid);
 }
 
 void TrackManager::predict(const std::chrono::system_clock::time_point &timestamp)
@@ -81,24 +80,24 @@ void TrackManager::correct()
 {
   for (auto &element : mKalmanEstimators)
   {
-    auto const &id = element.first;
-    if (mMeasurementMap.count(id))
+    auto const &uuid = element.first;
+    if (mMeasurementMap.count(uuid))
     {
       auto &estimator = element.second;
-      auto const measurement = mMeasurementMap.find(id);
+      auto const measurement = mMeasurementMap.find(uuid);
       estimator.correct(measurement->second);
 
       // Reset non measurement frames counter, increment tracked frames
-      mNonMeasurementFrames[id] = 0;
-      mNumberOfTrackedFrames[id]++;
+      mNonMeasurementFrames[uuid] = 0;
+      mNumberOfTrackedFrames[uuid]++;
     }
     else
     {
-      mNonMeasurementFrames[id]++;
+      mNonMeasurementFrames[uuid]++;
     }
   }
 
-  std::vector<Id> reactivationList;
+  std::vector<boost::uuids::uuid> reactivationList;
   for (auto &element : mSuspendedKalmanEstimators)
   {
     if (mMeasurementMap.count(element.first) > 0)
@@ -106,37 +105,37 @@ void TrackManager::correct()
       reactivationList.push_back(element.first);
     }
   }
-  for (const auto &id : reactivationList)
+  for (const auto &uuid : reactivationList)
   {
-    reactivateTrack(id);
-    mKalmanEstimators[id].correct(mMeasurementMap[id]);
+    reactivateTrack(uuid);
+    mKalmanEstimators[uuid].correct(mMeasurementMap[uuid]);
   }
 
-  std::vector<Id> deletionList;
-  std::vector<Id> suspendList;
+  std::vector<boost::uuids::uuid> deletionList;
+  std::vector<boost::uuids::uuid> suspendList;
 
   // Check no longer valid states and delete accordingly
   for (const auto &element : mNonMeasurementFrames)
   {
-    auto const &id = element.first;
+    auto const &uuid = element.first;
     auto const &nonmeasurementFrames = element.second;
 
-    if (isReliable(id))
+    if (isReliable(uuid))
     {
       uint32_t maxNonMeasurementFrames = 0;
       // let static objects stay longer
-      if (mKalmanEstimators[id].currentState().isDynamic())
+      if (mKalmanEstimators[uuid].currentState().isDynamic())
       {
         if (nonmeasurementFrames > mConfig.mNonMeasurementFramesDynamic)
         {
-          deletionList.push_back(id);
+          deletionList.push_back(uuid);
         }
       }
       else
       {
         if (nonmeasurementFrames > mConfig.mNonMeasurementFramesStatic)
         {
-          suspendList.push_back(id);
+          suspendList.push_back(uuid);
         }
       }
     }
@@ -144,17 +143,17 @@ void TrackManager::correct()
     {
       if (nonmeasurementFrames > mConfig.mNonMeasurementFramesDynamic)
       {
-        deletionList.push_back(id);
+        deletionList.push_back(uuid);
       }
     }
   }
-  for (const auto &id : deletionList)
+  for (const auto &uuid : deletionList)
   {
-    deleteTrack(id);
+    deleteTrack(uuid);
   }
-  for (const auto &id : suspendList)
+  for (const auto &uuid : suspendList)
   {
-    suspendTrack(id);
+    suspendTrack(uuid);
   }
 }
 
@@ -232,65 +231,54 @@ std::vector<TrackedObject> TrackManager::getDriftingTracks()
   return tracks;
 }
 
-void TrackManager::setMeasurement(const Id &id, const TrackedObject &measurement)
+void TrackManager::setMeasurement(const boost::uuids::uuid &uuid, const TrackedObject &measurement)
 {
-  auto previousMeasurement = mMeasurementMap.find(id);
+  auto previousMeasurement = mMeasurementMap.find(uuid);
   if (previousMeasurement != mMeasurementMap.end())
   {
-    mMeasurementMap[id] = measurement;
+    mMeasurementMap[uuid] = measurement;
   }
   else
   {
-    mMeasurementMap.insert(std::make_pair(id, measurement));
+    mMeasurementMap.insert(std::make_pair(uuid, measurement));
   }
 }
 
-TrackedObject TrackManager::getTrack(const Id &id)
+TrackedObject TrackManager::getTrack(const boost::uuids::uuid &uuid)
 {
-  return getKalmanEstimator(id).currentState();
+  return getKalmanEstimator(uuid).currentState();
 }
 
-MultiModelKalmanEstimator TrackManager::getKalmanEstimator(const Id &id)
+MultiModelKalmanEstimator TrackManager::getKalmanEstimator(const boost::uuids::uuid &uuid)
 {
-  if (mKalmanEstimators.count(id) > 0)
+  if (mKalmanEstimators.count(uuid) > 0)
   {
-    return mKalmanEstimators[id];
+    return mKalmanEstimators[uuid];
   }
-  else if(mSuspendedKalmanEstimators.count(id) > 0)
+  else if(mSuspendedKalmanEstimators.count(uuid) > 0)
   {
-    return mSuspendedKalmanEstimators[id];
+    return mSuspendedKalmanEstimators[uuid];
   }
   else
   {
-    throw std::runtime_error("The given id is not registered in this TrackManager.");
+    throw std::runtime_error("The given uuid is not registered in this TrackManager.");
   }
 }
 
 
-bool TrackManager::hasId(const Id &id)
+bool TrackManager::hasUuid(const boost::uuids::uuid &uuid)
 {
-  return (mKalmanEstimators.count(id) > 0) || (mSuspendedKalmanEstimators.count(id) > 0);
+  return (mKalmanEstimators.count(uuid) > 0) || (mSuspendedKalmanEstimators.count(uuid) > 0);
 }
 
-bool TrackManager::isReliable(const Id &id)
+bool TrackManager::isReliable(const boost::uuids::uuid &uuid)
 {
-  return mNumberOfTrackedFrames[id] >= mConfig.mMaxNumberOfUnreliableFrames;
+  return mNumberOfTrackedFrames[uuid] >= mConfig.mMaxNumberOfUnreliableFrames;
 }
 
-bool TrackManager::isSuspended(const Id &id)
+bool TrackManager::isSuspended(const boost::uuids::uuid &uuid)
 {
-  return mSuspendedKalmanEstimators.count(id) > 0;
-}
-
-void TrackManager::updateTrackerConfig(int camera_frame_rate)
-{
-  mConfig.mMaxNumberOfUnreliableFrames = std::ceil(camera_frame_rate*mConfig.mMaxUnreliableTime);
-  mConfig.mNonMeasurementFramesDynamic = std::ceil(camera_frame_rate*mConfig.mNonMeasurementTimeDynamic);
-  mConfig.mNonMeasurementFramesStatic = std::ceil(camera_frame_rate*mConfig.mNonMeasurementTimeStatic);
-  std::cout << "Updated parameters for reference camera frame rate = " << camera_frame_rate << "fps" << std::endl;
-  std::cout << "max_unreliable_frames = " << mConfig.mMaxNumberOfUnreliableFrames << std::endl;
-  std::cout << "non_measurement_frames_dynamic = " << mConfig.mNonMeasurementFramesDynamic << std::endl;
-  std::cout << "non_measurement_frames_static = " << mConfig.mNonMeasurementFramesStatic << std::endl;
+  return mSuspendedKalmanEstimators.count(uuid) > 0;
 }
 
 } // namespace tracking

@@ -17,38 +17,74 @@ namespace tracking {
 
 constexpr double kDefaultClassBoundValue = 1000.;
 
-double calculateMulticlassScaledDistance(const TrackedObject &measurement, const TrackedObject &track)
+double calculateVisualDistance(const TrackedObject &measurement, const TrackedObject &track)
 {
-  auto conflict = rv::tracking::classification::distance(measurement.classification, track.classification);
+  if ((track.getVisualFeaturesSet().size() > 0) && (measurement.getVisualFeaturesSet().size() > 0))
+  {
+    auto visualDistance = rv::tracking::visual::distance(measurement.getVisualFeatures(), track.getVisualFeaturesMatrix());
 
-  double distance = sqrt(pow(measurement.x - track.x, 2) + pow(measurement.y - track.y, 2));
-
-  return distance * (1.0 + conflict);
+    return static_cast<double>(visualDistance.minCoeff());
+  }
+  else
+  {
+    return 1.0;
+  }
 }
 
-double calculateEuclideanDistance(const TrackedObject &measurement, const TrackedObject &track)
+
+double calculateSpatialDistance(const TrackedObject &measurement, const TrackedObject &track)
 {
-  return sqrt(pow(measurement.x - track.x, 2) + pow(measurement.y - track.y, 2));
+  return sqrt(pow(measurement.x - track.x, 2) + pow(measurement.y - track.y, 2) + pow(measurement.z - track.z, 2));
 }
 
-double calculateMahalanobisDistance(const TrackedObject &measurement, const TrackedObject &track)
+double calculateVisualSpatialDistance(const TrackedObject &measurement, const TrackedObject &track)
+{
+  auto visualDistance = calculateVisualDistance(measurement, track);
+  auto visualScalingFactor = calculateVisualScalingFactor(track);
+  auto spatialDistance = calculateSpatialDistance(measurement, track);
+
+  return (0.5 + 2.0 * (0.5 + 0.5 * visualScalingFactor) * visualDistance) * spatialDistance;
+}
+
+
+double calculateVisualMultiClassDistance(const TrackedObject &measurement, const TrackedObject &track)
+{
+  auto visualDistance = calculateVisualDistance(measurement, track);
+  auto visualScalingFactor = calculateVisualScalingFactor(track);
+  auto multiClassDistance = rv::tracking::classification::distance(measurement.classification, track.classification);
+
+  return visualScalingFactor * visualDistance + multiClassDistance;
+}
+
+double calculateSpatialMultiClassDistance(const TrackedObject &measurement, const TrackedObject &track)
+{
+  auto multiClassDistance = rv::tracking::classification::distance(measurement.classification, track.classification);
+
+  double spatialDistance = calculateSpatialDistance(measurement, track);
+
+  return (1.0 + multiClassDistance) * spatialDistance;
+}
+
+double calculateVisualSpatialMultiClassDistance(const TrackedObject &measurement, const TrackedObject &track)
+{
+  auto visualDistance = calculateVisualDistance(measurement, track);
+  auto visualScalingFactor = calculateVisualScalingFactor(track);
+  auto spatialDistance = calculateSpatialDistance(measurement, track);
+  auto multiClassDistance = rv::tracking::classification::distance(measurement.classification, track.classification);
+
+  return (0.25 + 2.0 * visualScalingFactor * visualDistance + 2.0 * multiClassDistance) * spatialDistance;
+}
+
+double calculateMatchingMahalanobisDistance(const TrackedObject &track, const TrackedObject &measurement)
 {
   cv::Mat innovation = measurement.measurementVector() - (track.predictedMeasurementMean);
 
   // ignore yaw, 2D detectors cannot detect orientation
   innovation.at<double>(6, 0) = 0.;
 
-  cv::Mat mahalanobisDistance = innovation.t() * (track.predictedMeasurementCovInv) * innovation;
+  cv::Mat distance = innovation.t() * (track.predictedMeasurementCovInv) * innovation;
 
-  return 0.5 * std::sqrt(mahalanobisDistance.at<double>(0, 0));
-}
-
-double calculateCompundDistance(const TrackedObject &measurement, const TrackedObject &track)
-{
-  double euclideanDist = calculateMulticlassScaledDistance(measurement, track);
-  double mahalanobisDist = calculateMahalanobisDistance(measurement, track);
-
-  return 0.5 * euclideanDist + 0.5 * mahalanobisDist;
+  return 0.5 * std::sqrt(distance.at<double>(0,0));
 }
 
 void match(const std::vector<TrackedObject> &tracks,
@@ -79,8 +115,33 @@ void match(const std::vector<TrackedObject> &tracks,
   std::function<double(const TrackedObject &, const TrackedObject &)> distanceFunction;
   switch (distanceType)
   {
-    case DistanceType::MCEMahalanobis:
-      distanceFunction = std::bind(&calculateCompundDistance, std::placeholders::_1, std::placeholders::_2);
+    case DistanceType::Visual:
+      distanceFunction = std::bind(&calculateVisualDistance, std::placeholders::_1, std::placeholders::_2);
+      matcherOptions.cost_thresh = threshold;
+      matcherOptions.bound_value = kDefaultClassBoundValue;
+      break;
+    case DistanceType::Spatial:
+      distanceFunction = std::bind(&calculateSpatialDistance, std::placeholders::_1, std::placeholders::_2);
+      matcherOptions.cost_thresh = threshold;
+      matcherOptions.bound_value = kDefaultClassBoundValue;
+      break;
+    case DistanceType::VisualSpatial:
+      distanceFunction = std::bind(&calculateVisualSpatialDistance, std::placeholders::_1, std::placeholders::_2);
+      matcherOptions.cost_thresh = threshold;
+      matcherOptions.bound_value = kDefaultClassBoundValue;
+      break;
+    case DistanceType::VisualMultiClass:
+      distanceFunction = std::bind(&calculateVisualMultiClassDistance, std::placeholders::_1, std::placeholders::_2);
+      matcherOptions.cost_thresh = threshold;
+      matcherOptions.bound_value = kDefaultClassBoundValue;
+      break;
+    case DistanceType::SpatialMultiClass:
+      distanceFunction = std::bind(&calculateSpatialMultiClassDistance, std::placeholders::_1, std::placeholders::_2);
+      matcherOptions.cost_thresh = threshold;
+      matcherOptions.bound_value = kDefaultClassBoundValue;
+      break;
+    case DistanceType::VisualSpatialMultiClass:
+      distanceFunction = std::bind(&calculateVisualSpatialMultiClassDistance, std::placeholders::_1, std::placeholders::_2);
       matcherOptions.cost_thresh = threshold;
       matcherOptions.bound_value = kDefaultClassBoundValue;
       break;
@@ -89,14 +150,8 @@ void match(const std::vector<TrackedObject> &tracks,
       matcherOptions.cost_thresh = threshold;
       matcherOptions.bound_value = kDefaultClassBoundValue;
       break;
-    case DistanceType::MultiClassEuclidean:
-      distanceFunction = std::bind(&calculateMulticlassScaledDistance, std::placeholders::_1, std::placeholders::_2);
-      matcherOptions.cost_thresh = threshold;
-      matcherOptions.bound_value = kDefaultClassBoundValue;
-      break;
-    case DistanceType::Euclidean:
     default:
-      distanceFunction = std::bind(&calculateEuclideanDistance, std::placeholders::_1, std::placeholders::_2);
+      distanceFunction = std::bind(&calculateSpatialDistance, std::placeholders::_1, std::placeholders::_2);
       matcherOptions.cost_thresh = threshold;
       matcherOptions.bound_value = kDefaultClassBoundValue;
       break;

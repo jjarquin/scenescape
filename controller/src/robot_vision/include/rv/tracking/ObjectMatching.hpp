@@ -21,10 +21,13 @@ namespace tracking {
 
 enum class DistanceType
 {
-  MultiClassEuclidean,
-  Euclidean,
+  Visual,
+  Spatial,
+  VisualSpatial,
+  VisualMultiClass,
+  SpatialMultiClass,
+  VisualSpatialMultiClass,
   Mahalanobis,
-  MCEMahalanobis
 };
 
 void match(const std::vector<TrackedObject> &tracks,

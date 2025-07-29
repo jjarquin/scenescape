@@ -75,7 +75,7 @@ void MultipleObjectTracker::track(std::vector<tracking::TrackedObject> objects, 
   {
     auto const &track = tracks[assignment.first];
     auto const &object = objects[assignment.second];
-    mTrackManager.setMeasurement(track.id, object);
+    mTrackManager.setMeasurement(track.uuid, object);
   }
 
   // Remove tracks already assigned
@@ -89,7 +89,7 @@ void MultipleObjectTracker::track(std::vector<tracking::TrackedObject> objects, 
   {
     auto track = tracks[assignment.first];
     auto object = lowScoreObjects[assignment.second];
-    mTrackManager.setMeasurement(track.id, object);
+    mTrackManager.setMeasurement(track.uuid, object);
   }
 
   // 3.1 Update measurements - Match to unreliable objects first and then suspended tracks.
@@ -103,7 +103,7 @@ void MultipleObjectTracker::track(std::vector<tracking::TrackedObject> objects, 
   {
     auto const &track = unreliableTracks[assignment.first];
     auto const &object = objects[assignment.second];
-    mTrackManager.setMeasurement(track.id, object);
+    mTrackManager.setMeasurement(track.uuid, object);
   }
 
   // Remove objects already assigned to Unreliable tracks
@@ -116,16 +116,16 @@ void MultipleObjectTracker::track(std::vector<tracking::TrackedObject> objects, 
   {
     auto const &track = suspendedTracks[assignment.first];
     auto const &object = objects[assignment.second];
-    mTrackManager.setMeasurement(track.id, object);
+    mTrackManager.setMeasurement(track.uuid, object);
   }
 
   // 3.2 Update measurements - Correct measurements
   mTrackManager.correct();
 
   // 4. - Create new tracks
-  for (const auto &id : unassignedObjects)
+  for (const auto &index : unassignedObjects)
   {
-    auto const newTrack = objects[id];
+    auto const newTrack = objects[index];
 
     mTrackManager.createTrack(newTrack, timestamp);
   }

@@ -72,6 +72,7 @@ TEST(MultipleObjectTrackerTest, SingleDetectionTracking)
         && (k <= (trackerConfig.mMaxNumberOfUnreliableFrames + trackerConfig.mNonMeasurementFramesDynamic)))
     {
       ASSERT_EQ(trackedObjects.size(), 1);
+      ASSERT_EQ(trackedObjects[0].uuid.version(), boost::uuids::uuid::version_type::version_random_number_based);
       feedObject = false;
     }
     else
@@ -103,7 +104,7 @@ TEST(MultipleObjectTrackerTest, SingleDetectionSingleModelTracking)
   trackerConfig.mNonMeasurementFramesStatic = 20;
   trackerConfig.mDefaultProcessNoise = 1e-4;
   trackerConfig.mDefaultMeasurementNoise = 1e-5;
-  trackerConfig.mMotionModels = std::vector<rv::tracking::MotionModel>{rv::tracking::MotionModel::CV};
+  trackerConfig.mMotionModels = std::vector<rv::tracking::MotionModelType>{rv::tracking::MotionModelType::CV};
   rv::tracking::MultipleObjectTracker objectTracker(trackerConfig);
 
   std::vector<rv::tracking::TrackedObject> trackedObjects;
@@ -157,7 +158,7 @@ TEST(MultipleObjectTrackerTest, SingleDetectionSingleModelTracking)
 
 
 
-TEST(MultipleObjectTrackerTest, MultipleDetectionTrackingEuclideanDistance)
+TEST(MultipleObjectTrackerTest, MultipleDetectionTrackingSpatialDistance)
 {
   auto classificationData = rv::tracking::ClassificationData({"Car", "Bike", "Pedestrian"});
 
@@ -202,7 +203,7 @@ TEST(MultipleObjectTrackerTest, MultipleDetectionTrackingEuclideanDistance)
   trackerConfig.mNonMeasurementFramesDynamic = 7;
   trackerConfig.mNonMeasurementFramesStatic = 20;
 
-  rv::tracking::MultipleObjectTracker objectTracker(trackerConfig, rv::tracking::DistanceType::Euclidean, 5.0);
+  rv::tracking::MultipleObjectTracker objectTracker(trackerConfig, rv::tracking::DistanceType::Spatial, 5.0);
 
   std::vector<rv::tracking::TrackedObject> trackedObjects;
 
@@ -257,7 +258,7 @@ TEST(MultipleObjectTrackerTest, MultipleDetectionTrackingEuclideanDistance)
   }
 }
 
-TEST(MultipleObjectTrackerTest, MultipleDetectionTrackingMultiClassEuclideanDistance)
+TEST(MultipleObjectTrackerTest, MultipleDetectionTrackingSpatialMultiClassDistance)
 {
   auto classificationData = rv::tracking::ClassificationData({"Car", "Bike", "Pedestrian"});
 
@@ -302,7 +303,7 @@ TEST(MultipleObjectTrackerTest, MultipleDetectionTrackingMultiClassEuclideanDist
   trackerConfig.mNonMeasurementFramesDynamic = 7;
   trackerConfig.mNonMeasurementFramesStatic = 20;
 
-  rv::tracking::MultipleObjectTracker objectTracker(trackerConfig, rv::tracking::DistanceType::MultiClassEuclidean, 5.0);
+  rv::tracking::MultipleObjectTracker objectTracker(trackerConfig, rv::tracking::DistanceType::SpatialMultiClass, 5.0);
 
   std::vector<rv::tracking::TrackedObject> trackedObjects;
 
@@ -458,108 +459,6 @@ TEST(MultipleObjectTrackerTest, MultipleDetectionTrackingMahalanobisDistance)
 }
 
 
-TEST(MultipleObjectTrackerTest, MultipleDetectionTrackingMCEMahalanobisDistance)
-{
-  auto classificationData = rv::tracking::ClassificationData({"Car", "Bike", "Pedestrian"});
-
-  // five objects, in a square arrangement, with the object05 at the center of the box,
-  rv::tracking::TrackedObject object01;
-  object01.x = 100.0;
-  object01.y = 100.0;
-  object01.width = 1.0;
-  object01.length = 2.0;
-  object01.classification = classificationData.classification("Car", 1.0);
-
-  rv::tracking::TrackedObject object02;
-  object02.x = -100.0;
-  object02.y = 100.0;
-  object02.width = 1.0;
-  object02.length = 2.0;
-  object02.classification = classificationData.classification("Car", 1.0);
-
-  rv::tracking::TrackedObject object03;
-  object03.x = -100.0;
-  object03.y = -100.0;
-  object03.width = 1.0;
-  object03.length = 2.0;
-  object03.classification = classificationData.classification("Car", 1.0);
-
-  rv::tracking::TrackedObject object04;
-  object04.x = 100.0;
-  object04.y = -100.0;
-  object04.width = 1.0;
-  object04.length = 2.0;
-  object04.classification = classificationData.classification("Car", 1.0);
-
-  rv::tracking::TrackedObject object05;
-  object05.x = 0.0;
-  object05.y = 0.0;
-  object05.width = 1.0;
-  object05.length = 2.0;
-  object05.classification = classificationData.classification("Car", 1.0);
-
-  rv::tracking::TrackManagerConfig trackerConfig;
-  trackerConfig.mMaxNumberOfUnreliableFrames = 5;
-  trackerConfig.mNonMeasurementFramesDynamic = 7;
-  trackerConfig.mNonMeasurementFramesStatic = 20;
-
-  rv::tracking::MultipleObjectTracker objectTracker(trackerConfig, rv::tracking::DistanceType::MCEMahalanobis, 5.0);
-
-  std::vector<rv::tracking::TrackedObject> trackedObjects;
-
-  trackedObjects = objectTracker.getTracks();
-
-  ASSERT_EQ(trackedObjects.size(), 0);
-
-  uint32_t timeMilliseconds = 0;
-  uint32_t deltaMilliseconds = 10;
-  uint32_t totalMilliseconds = 1000;
-
-  double deltaT = static_cast<double>(deltaMilliseconds) / 1000.0;
-
-  for (uint32_t timeMilliseconds = 0; timeMilliseconds < totalMilliseconds; timeMilliseconds += deltaMilliseconds)
-  {
-    uint32_t k = timeMilliseconds / deltaMilliseconds;
-
-    auto const &timestamp = std::chrono::system_clock::time_point(std::chrono::milliseconds(timeMilliseconds));
-
-    // simulate a movement with velocity {-5 m/s, -5 m/s}
-    object01.x = object01.x - 5.0 * deltaT;
-    object01.y = object01.y - 5.0 * deltaT;
-
-    // simulate a movement with velocity {5 m/s, -5 m/s}
-    object02.x = object02.x + 5.0 * deltaT;
-    object02.y = object02.y - 5.0 * deltaT;
-
-    // simulate a movement with velocity {10 m/s, 10 m/s}
-    object03.x = object03.x + 10.0 * deltaT;
-    object03.y = object03.y + 10.0 * deltaT;
-
-    // simulate a movement with velocity {-2 m/s, 2 m/s}
-    object04.x = object04.x - 2.0 * deltaT;
-    object04.y = object04.y + 2.0 * deltaT;
-
-    // simulate a movement with velocity {0 m/s, 0 m/s}
-    object05.x = object05.x + 0. * deltaT;
-    object05.y = object05.y + 0. * deltaT;
-
-    auto detectedObjects = std::vector<rv::tracking::TrackedObject>{object01, object02, object03, object04, object05};
-    objectTracker.track(detectedObjects, timestamp);
-    trackedObjects = objectTracker.getReliableTracks();
-    //  || Init: Frame 1 - Unreliable: Frame 1 to N || Reliable: Frame N + 1 || with N=mMaxNumberOfNonMeasurementFrames
-    if (k >= trackerConfig.mMaxNumberOfUnreliableFrames)
-    {
-      ASSERT_EQ(trackedObjects.size(), 5);
-    }
-    else
-    {
-      ASSERT_EQ(trackedObjects.size(), 0);
-    }
-  }
-}
-
-
-
 rv::tracking::TrackedObject createObjectAtLocation(double x, double y, const rv::tracking::ClassificationData & classificationData, const std::string & className)
 {
   rv::tracking::TrackedObject object;
@@ -581,7 +480,7 @@ TEST(MultipleObjectTrackerTest, MultipleDetectionTrackingStressTest)
   trackerConfig.mNonMeasurementFramesDynamic = 7;
   trackerConfig.mNonMeasurementFramesStatic = 20;
 
-  rv::tracking::MultipleObjectTracker objectTracker(trackerConfig, rv::tracking::DistanceType::MCEMahalanobis, 5.0);
+  rv::tracking::MultipleObjectTracker objectTracker(trackerConfig, rv::tracking::DistanceType::SpatialMultiClass, 5.0);
 
   std::vector<rv::tracking::TrackedObject> trackedObjects;
 

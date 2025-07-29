@@ -26,8 +26,8 @@ class IntelLabsTracking(Tracking):
     self.ref_camera_frame_rate = 30
     tracker_config = rv.tracking.TrackManagerConfig()
 
-    tracker_config.default_process_noise = 1e-4
-    tracker_config.default_measurement_noise = 2e-1
+    tracker_config.default_process_noise = 1e-3
+    tracker_config.default_measurement_noise = 2e-3
     tracker_config.init_state_covariance = 1
 
     tracker_config.motion_models = [rv.tracking.MotionModel.CV, rv.tracking.MotionModel.CA,
@@ -83,15 +83,27 @@ class IntelLabsTracking(Tracking):
     rv_object.attributes = {
       'info': sscape_object.uuid,
     }
+
+    if sscape_object.reidVector is not None:
+      rv_object.add_visual_features(np.array(sscape_object.reidVector, dtype=float).reshape(-1, 1))
+
     return rv_object
 
   def update_tracks(self, objects, timestamp):
     rv_objects = [self.to_rv_object(sscape_object) for sscape_object in objects]
     tracking_radius = DEFAULT_TRACKING_RADIUS
+
+    use_visual_data = any([sscape_object.reidVector is not None for sscape_object in objects])
+
+    if use_visual_data:
+      distance_type=rv.tracking.DistanceType.VisualSpatial
+    else:
+      distance_type=rv.tracking.DistanceType.Spatial
+
     if len(objects):
       tracking_radius = sum([x.tracking_radius for x in objects]) / len(objects)
 
-    self.tracker.track(rv_objects, timestamp, distance_type=rv.tracking.DistanceType.Euclidean, distance_threshold=tracking_radius)
+    self.tracker.track(rv_objects, timestamp, distance_type=distance_type, distance_threshold=tracking_radius)
     return
 
   def from_tracked_object(self, tracked_object, objects):
@@ -111,7 +123,7 @@ class IntelLabsTracking(Tracking):
                                             tracked_object.z)
     sscape_object.velocity = Point((tracked_object.vx, tracked_object.vy, 0.0))
 
-    sscape_object.rv_id = tracked_object.id
+    sscape_object.rv_id = tracked_object.uuid
     found = False
     for obj in self._objects:
       if hasattr(obj, 'rv_id') and sscape_object.rv_id == obj.rv_id:

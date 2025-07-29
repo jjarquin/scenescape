@@ -1,10 +1,10 @@
-// SPDX-FileCopyrightText: (C) 2019 - 2025 Intel Corporation
+// SPDX-FileCopyrightText: (C) 2025 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 
 #pragma once
 
-#include "rv/tracking/MotionModel.hpp"
 #include <opencv2/imgproc/imgproc.hpp>
+#include <opencv2/tracking/kalman_filters.hpp>
 
 namespace rv {
 namespace tracking {
@@ -17,25 +17,25 @@ namespace tracking {
  *
  * See "Comparison and evaluation of advanced motion models for vehicle tracking".
  */
-class CAModel : public MotionModel
+class MotionModel : public cv::detail::tracking::UkfSystemModel
 {
 public:
   /**
    * @brief State transition function for the Constant Acceleration Model
    */
 
-  void stateConversionFunction(const cv::Mat &x_k, const cv::Mat &u_k, const cv::Mat &v_k, cv::Mat &x_kplus1) override;
+  virtual void stateConversionFunction(const cv::Mat &x_k, const cv::Mat &u_k, const cv::Mat &v_k, cv::Mat &x_kplus1) override = 0;
 
   /**
     * @brief State measurement function for the Constant Acceleration Model
     */
-  void measurementFunction(const cv::Mat &x_k, const cv::Mat &n_k, cv::Mat &z_k) override;
+  virtual void measurementFunction(const cv::Mat &x_k, const cv::Mat &n_k, cv::Mat &z_k) override = 0;
 
-  cv::Mat processNoiseCovariance(double processNoise, double deltaT, int type) override;
+  virtual cv::Mat processNoiseCovariance(double processNoise, double deltaT, int type) = 0;
 
-  cv::Mat measurementNoiseCovariance(double measurementNoise, double deltaT, int type) override;
+  virtual cv::Mat measurementNoiseCovariance(double processNoise, double deltaT, int type) = 0;
 
-  double timeVarying () override {return false;}
+  virtual double timeVarying () = 0;
 };
 } // namespace tracking
 } // namespace rv

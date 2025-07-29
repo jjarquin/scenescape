@@ -10,12 +10,6 @@
 #include <algorithm>
 
 namespace rv {
-// clamp function available in c++17
-template <typename T> inline T clamp(const T &value, const T &lower, const T &upper)
-{
-  return std::max(lower, std::min(value, upper));
-}
-
 // convert chrono duration object to its equivalent in seconds as double precision floating point
 double inline toSeconds(std::chrono::duration<double> const &duration)
 {

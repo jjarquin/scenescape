@@ -12,9 +12,12 @@
 #include <rv/tracking/TrackTracker.hpp>
 #include <rv/tracking/TrackedObject.hpp>
 #include <rv/tracking/Classification.hpp>
+#include <rv/tracking/VisualFeatures.hpp>
 #include <chrono>
 #include <vector>
 #include <Eigen/Dense>
+
+#include "uuid.hpp"
 
 namespace py = pybind11;
 
@@ -25,7 +28,6 @@ PYBIND11_MODULE(tracking, tracking)
     -----------------------
     )pbdoc";
 
-py::class_<rv::tracking::Classification>(tracking, "Classification", "Classification vector.");
   py::class_<rv::tracking::ClassificationData>(tracking, "ClassificationData", "Helper class to initialize and get data from a class probability vector (numpy.array).")
      .def(py::init<>(), "Default constructor. The classes vector will default to ['Unknown'].")
      .def(py::init<std::vector<std::string> &>(),
@@ -61,22 +63,42 @@ py::class_<rv::tracking::Classification>(tracking, "Classification", "Classifica
     .def_readwrite("width", &rv::tracking::TrackedObject::width, "Object's width in meters.")
     .def_readwrite("height", &rv::tracking::TrackedObject::height, "Object's height in meters.")
     .def_readwrite("yaw", &rv::tracking::TrackedObject::yaw, "Orientation about Z axis in radians.")
-    .def_readwrite("w", &rv::tracking::TrackedObject::w, "Turn rate about Z axis in radians/s.")
+    .def_readwrite("yaw_rate", &rv::tracking::TrackedObject::yawRate, "Turn rate about Z axis in radians/s.")
     .def_readwrite("vx", &rv::tracking::TrackedObject::vx, "Velocity component 'x' (forward) in m/s.")
     .def_readwrite("vy", &rv::tracking::TrackedObject::vy, "Velocity component 'y' (left) in m/s.")
+    .def_readwrite("vz", &rv::tracking::TrackedObject::vz, "Velocity component 'z' (up) in m/s.")
     .def_readwrite("ax", &rv::tracking::TrackedObject::ax, "Acceleration component 'x' (forward) in m/s^2.")
     .def_readwrite("ay", &rv::tracking::TrackedObject::ay, "Acceleration component 'y' (left) in m/s^2.")
+    .def_readwrite("az", &rv::tracking::TrackedObject::az, "Acceleration component 'z' (up) in m/s^2.")
+    .def_readwrite("jx", &rv::tracking::TrackedObject::jx, "Jerk component 'x' (forward) in m/s^3.")
+    .def_readwrite("jy", &rv::tracking::TrackedObject::jy, "Jerk component 'y' (left) in m/s^3.")
+    .def_readwrite("jz", &rv::tracking::TrackedObject::jz, "Jerk component 'z' (up) in m/s^3.")
+    .def_readwrite("age", &rv::tracking::TrackedObject::age, "Time in seconds the object has been updated by a Kalman Estimator.")
+    .def_readwrite("predicted_time", &rv::tracking::TrackedObject::predictedTime, "Time in seconds the object has been consecutively predicted by a Kalman Estimator.")
+    .def_readwrite("tracked_time", &rv::tracking::TrackedObject::trackedTime, "Time in seconds the object has been consecutively tracked by a Kalman Estimator.")
     .def_readwrite("corrected", &rv::tracking::TrackedObject::corrected, "Returns True if the TrackedObject was the result of a correction step.")
-    .def_readwrite("id", &rv::tracking::TrackedObject::id, "Object's identification number.")
+    .def_readwrite("association_probability", &rv::tracking::TrackedObject::associationProbability, "Returns the last association probability computed during the correction step.")
+    .def_readwrite("visual_certainty", &rv::tracking::TrackedObject::visualCertainty, "Returns the mean of the visual similarity calculation.")
+    .def_property("uuid", &rv::tracking::TrackedObject::uuidString, &rv::tracking::TrackedObject::setUuidString, "Returns the uuid string.")
+    .def("is_uuid_nil", &rv::tracking::TrackedObject::isUuidNil, "Whether the current uuid is nil/empty.")
     .def("isDynamic", &rv::tracking::TrackedObject::isDynamic, "Returns True if the TrackedObject is considered to be moving.")
     .def_readwrite("classification", &rv::tracking::TrackedObject::classification, "Returns a numpy array with classification probabilities.")
+    .def("add_visual_features", &rv::tracking::TrackedObject::addVisualFeatures, "Set the current visual feature embeddding vector")
+    .def("get_visual_features", &rv::tracking::TrackedObject::getVisualFeatures, "Get the current visual feature embeddding vector")
+    .def("get_visual_features_matrix", &rv::tracking::TrackedObject::getVisualFeaturesMatrix, py::return_value_policy::reference_internal, "Get the current visual feature embeddding vector")
+    .def_property("visual_features_set", &rv::tracking::TrackedObject::getVisualFeaturesSet,
+                                          &rv::tracking::TrackedObject::setVisualFeaturesSet,
+                                               "Read/write access to visual feature set")
     .def_readwrite("attributes", &rv::tracking::TrackedObject::attributes, "Dictionary of attributes. Note: only string types are supported.")
     .def_property("vector",
                   &rv::tracking::TrackedObject::getVectorXf,
                   &rv::tracking::TrackedObject::setVectorXf,
                   py::return_value_policy::take_ownership, "Returns this object's state vector as numpy array.")
+    .def("state_vector",  &rv::tracking::TrackedObject::stateVector, "State vector 14x1, convert to numpy using np.array(tracked_object.state_vector).")
+    .def("measurement_vector",  &rv::tracking::TrackedObject::measurementVector, "Measurement vector 7x1, convert to numpy using np.array(tracked_object.measurement_vector).")
     .def_readwrite("measurement_mean", &rv::tracking::TrackedObject::predictedMeasurementMean, "Returns this object's measurement vector as numpy array.")
     .def_readwrite("measurement_covariance", &rv::tracking::TrackedObject::predictedMeasurementCov, "Measurement covariance matrix, convert to numpy using np.array(tracked_object.measurement_covariance).")
+    .def_readwrite("measurement_covariance_inv", &rv::tracking::TrackedObject::predictedMeasurementCovInv, "Measurement covariance matrix inverse, convert to numpy using np.array(tracked_object.measurement_covariance_inv).")
     .def_readwrite("error_covariance", &rv::tracking::TrackedObject::errorCovariance, "Error covariance matrix, convert to numpy using np.array(tracked_object.error_covariance).")
     .def("__repr__", &rv::tracking::TrackedObject::toString, "String representation.");
 
@@ -95,7 +117,7 @@ py::class_<rv::tracking::Classification>(tracking, "Classification", "Classifica
          py::arg("process_noise") = 1e-6,
          py::arg("measurement_noise") = 1e-4,
          py::arg("init_state_covariance") = 1.,
-         py::arg("motion_models") = std::vector<rv::tracking::MotionModel>())
+         py::arg("motion_models") = std::vector<rv::tracking::MotionModelType>())
     .def("predict",
          py::overload_cast<double>(&rv::tracking::MultiModelKalmanEstimator::predict),
          "Predict the position at T+deltaT time.",
@@ -136,22 +158,29 @@ py::class_<rv::tracking::Classification>(tracking, "Classification", "Classifica
           &rv::tracking::MultiModelKalmanEstimator::getConditionalProbability,
           "Current conditional probability from model a to model b.");
 
-  py::enum_<rv::tracking::MotionModel>(tracking, "MotionModel", "MotionModel enum class.")
-    .value("CV", rv::tracking::MotionModel::CV, "Constant velocity.")
-    .value("CA", rv::tracking::MotionModel::CA, "Constant acceleration.")
-    .value("CP", rv::tracking::MotionModel::CP, "Constant position.")
-    .value("CTRV", rv::tracking::MotionModel::CTRV, "Constant Turn-Rate and Velocity.")
+  py::enum_<rv::tracking::MotionModelType>(tracking, "MotionModel", "MotionModel enum class.")
+    .value("CV", rv::tracking::MotionModelType::CV, "Constant Velocity.")
+    .value("CA", rv::tracking::MotionModelType::CA, "Constant Acceleration.")
+    .value("CP", rv::tracking::MotionModelType::CP, "Constant Position.")
+    .value("CJ", rv::tracking::MotionModelType::CJ, "Constant Jerk.")
+    .value("CTRV", rv::tracking::MotionModelType::CTRV, "Constant Turn-Rate and Velocity.")
     .export_values();
 
   py::enum_<rv::tracking::DistanceType>(tracking, "DistanceType", "DistanceType enum class.")
-    .value("MultiClassEuclidean", rv::tracking::DistanceType::MultiClassEuclidean,
-     "Scaled euclidean metric distance. It is scaled by the conflict between class probabilities.")
-    .value("Euclidean", rv::tracking::DistanceType::Euclidean,
-     "Standard euclidean distance that considers x and y coordinates.")
+    .value("Visual", rv::tracking::DistanceType::Visual,
+     "Use the cosine distance on the visual features.")
+    .value("Spatial", rv::tracking::DistanceType::Spatial,
+     "Standard euclidean distance that considers the object position (x,y,z).")
+    .value("VisualSpatial", rv::tracking::DistanceType::VisualSpatial,
+     "Scaled euclidean metric distance. It is scaled by visual distance between objects.")
+    .value("VisualMultiClass", rv::tracking::DistanceType::VisualMultiClass,
+     "The sum of the multiclass probability conflict and the visual distance")
+    .value("SpatialMultiClass", rv::tracking::DistanceType::SpatialMultiClass,
+     "Scaled euclidean metric distance. It is scaled by the multiclass probability difference.")
+    .value("VisualSpatialMultiClass", rv::tracking::DistanceType::VisualSpatialMultiClass,
+     "Scaled euclidean metric distance. It is scaled by the sum of the multiclass probability conflict and the visual distance.")
     .value("Mahalanobis", rv::tracking::DistanceType::Mahalanobis,
      "Mahalanobis distance that considers the objects measurement vector.")
-    .value("MCEMahalanobis", rv::tracking::DistanceType::MCEMahalanobis,
-     "Combination of MultiClassEuclidean and Mahalanobis distances.")
     .export_values();
 
   py::class_<rv::tracking::TrackManagerConfig>(tracking, "TrackManagerConfig", "Holds all the configuration parameters used by the TrackManager.")
@@ -164,12 +193,6 @@ py::class_<rv::tracking::Classification>(tracking, "Classification", "Classifica
      "Number of frames to measure an object before considering it a reliable object.")
     .def_readwrite("reactivation_frames", &rv::tracking::TrackManagerConfig::mReactivationFrames,
      "Number of frames to measure a suspended object before reactivating the track.")
-    .def_readwrite("non_measurement_time_dynamic", &rv::tracking::TrackManagerConfig::mNonMeasurementTimeDynamic,
-     "Sets the maximum non measurement time (seconds) for a dynamic object. The track will be removed if it is not seen for given amount of time.")
-    .def_readwrite("non_measurement_time_static", &rv::tracking::TrackManagerConfig::mNonMeasurementTimeStatic,
-     "Sets the maximum non measurement time (seconds) for a static object. The track will be removed if it is not seen for given amount of time.")
-    .def_readwrite("max_unreliable_time", &rv::tracking::TrackManagerConfig::mMaxUnreliableTime,
-     "Amount of time (seconds) to measure an object before considering it a reliable object.")
     .def_readwrite("default_process_noise", &rv::tracking::TrackManagerConfig::mDefaultProcessNoise,
      "Default process noise passed to the KalmanEstimator init function.")
     .def_readwrite("default_measurement_noise", &rv::tracking::TrackManagerConfig::mDefaultMeasurementNoise,
@@ -182,7 +205,7 @@ py::class_<rv::tracking::Classification>(tracking, "Classification", "Classifica
 
 
      py::class_<rv::tracking::TrackManager>(tracking, "TrackManager",
-      "Track management system for multiple objects, it holds databases of the current objects on the scene and facilitates updates of multiple objects via id queries.")
+      "Track management system for multiple objects, it holds databases of the current objects on the scene and facilitates updates of multiple objects via uuid queries.")
     .def(py::init<>(), "Construct with default config")
     .def(py::init<const rv::tracking::TrackManagerConfig &>(), "Construct with given config", py::arg("track_manager_config"))
     .def(py::init<bool>(),
@@ -193,7 +216,7 @@ py::class_<rv::tracking::Classification>(tracking, "Classification", "Classifica
      py::arg("track_manager_config"), py::arg("auto_id_generation"))
     .def("create_track",
          &rv::tracking::TrackManager::createTrack,
-         "Create a new track, returns object id of new track.",
+         "Create a new track, returns object uuid of new track.",
          py::arg("object"),
          py::arg("timestamp"))
     .def("predict",
@@ -206,8 +229,8 @@ py::class_<rv::tracking::Classification>(tracking, "Classification", "Classifica
          py::arg("timestamp"))
     .def("set_measurement",
          &rv::tracking::TrackManager::setMeasurement,
-         "Create a new track, returns object id of new track.",
-         py::arg("id"),
+         "Create a new track, returns object uuid of new track.",
+         py::arg("uuid"),
          py::arg("measurement"))
      .def("correct", &rv::tracking::TrackManager::correct, "Trigger state correction for all tracks.")
      .def("get_tracks", &rv::tracking::TrackManager::getTracks, "returns a list of all active tracks.")
@@ -225,40 +248,36 @@ py::class_<rv::tracking::Classification>(tracking, "Classification", "Classifica
           "Returns a list of tracks in risk of being deleted. Objects that have not been visible for config.non_measurement_frames_dynamic / 2.")
      .def("get_track",
           &rv::tracking::TrackManager::getTrack,
-          "Returns the TrackedObject stored for the given id.",
-          py::arg("id"))
+          "Returns the TrackedObject stored for the given uuid.",
+          py::arg("uuid"))
      .def("get_kalman_estimator",
           &rv::tracking::TrackManager::getKalmanEstimator,
-          "Returns the MultiModelKalmanEstimator  stored for the given id.",
-          py::arg("id"))
-     .def("has_id",
-         &rv::tracking::TrackManager::hasId,
+          "Returns the MultiModelKalmanEstimator  stored for the given uuid.",
+          py::arg("uuid"))
+     .def("has_uuid",
+         &rv::tracking::TrackManager::hasUuid,
          "Check wether the given Id is registered in the track manager.",
-         py::arg("id"))
+         py::arg("uuid"))
      .def("delete_track",
          &rv::tracking::TrackManager::deleteTrack,
-         "Delete the given track id from the track manager.",
-         py::arg("id"))
+         "Delete the given track uuid from the track manager.",
+         py::arg("uuid"))
      .def("suspend_track",
          &rv::tracking::TrackManager::suspendTrack,
-          "Set the given track id as suspended.",
-         py::arg("id"))
+          "Set the given track uuid as suspended.",
+         py::arg("uuid"))
      .def("reactivate_track",
          &rv::tracking::TrackManager::reactivateTrack,
-         "Move a suspended track id to active tracks.",
-         py::arg("id"))
+         "Move a suspended track uuid to active tracks.",
+         py::arg("uuid"))
      .def("is_reliable",
          &rv::tracking::TrackManager::isReliable,
-         "Check whether the given track id is reliable.",
-         py::arg("id"))
+         "Check whether the given track uuid is reliable.",
+         py::arg("uuid"))
      .def("is_suspended",
          &rv::tracking::TrackManager::isSuspended,
-         "Check whether the given track id is suspended.",
-         py::arg("id"))
-     .def("update_tracker_config",
-         &rv::tracking::TrackManager::updateTrackerConfig,
-         "Compute frame-based parameters using camera frame rate.",
-         py::arg("camera_frame_rate"))
+         "Check whether the given track uuid is suspended.",
+         py::arg("uuid"))
      .def_property_readonly("config", &rv::tracking::TrackManager::getConfig, "Current track manager configuration");
 
   py::class_<rv::tracking::MultipleObjectTracker>(tracking, "MultipleObjectTracker",
@@ -290,20 +309,17 @@ py::class_<rv::tracking::Classification>(tracking, "Classification", "Classifica
     .def("get_tracks", &rv::tracking::MultipleObjectTracker::getTracks, "Returns a list of all active tracks")
     .def("get_reliable_tracks",
          &rv::tracking::MultipleObjectTracker::getReliableTracks,
-         "Returns a list of all active reliable tracks.")
-    .def("update_tracker_params",
-         &rv::tracking::MultipleObjectTracker::updateTrackerParams,
-         "Updates tracker frame based parameters.");
+         "Returns a list of all active reliable tracks.");
 
   py::class_<rv::tracking::TrackTracker>(tracking,
-  "TrackTracker", "Multiple Object Tracking algorithm using the TrackManager in the background. This tracker does not perform any association step, instead it relies on the object's id for association.")
+  "TrackTracker", "Multiple Object Tracking algorithm using the TrackManager in the background. This tracker does not perform any association step, instead it relies on the object's uuid for association.")
     .def(py::init<>(), "Default constructor, use default config parameters.")
     .def(py::init<const rv::tracking::TrackManagerConfig &>(),
       "Use the given config parameters for the track manager.",
       py::arg("track_manager_config"))
     .def("track",
          &rv::tracking::TrackTracker::track,
-         "Trigger the track step for the next timestamp. Note: The objects must have an id already assigned.",
+         "Trigger the track step for the next timestamp. Note: The objects must have an uuid already assigned.",
          py::arg("tracked_objects"),
          py::arg("timestamp"))
     .def("timestamp", &rv::tracking::TrackTracker::getTimestamp, "Read current timestamp.")
@@ -323,17 +339,32 @@ py::class_<rv::tracking::Classification>(tracking, "Classification", "Classifica
           "Match measurements to tracks. Returns a tuple containing (track and object index, unassigned tracks, unassigned objects).",
           py::arg("tracks"),
           py::arg("measurements"),
-          py::arg("distance_type") = rv::tracking::DistanceType::MultiClassEuclidean,
+          py::arg("distance_type") = rv::tracking::DistanceType::Spatial,
           py::arg("threshold") = 1.0);
 
-     tracking.def("angle_difference",
-        &rv::angleDifference,
-        "Calculates the difference between two angles, wraps the angles to any multiple of 2*pi.");
+     tracking.def("mahalanobis_distance",
+        &rv::tracking::calculateMahalanobisDistance,
+        "Calculates the mahalanobis distance between the predicted measurement of the track and the new measurement",
+        py::arg("track"), py::arg("measurement"));
+
+     tracking.def("association_probability",
+        &rv::tracking::calculateAssociationProbability,
+        "Calculates the association probability between the predicted measurement of the track and the new measurement",
+        py::arg("track"), py::arg("measurement"));
 
      tracking.def("delta_theta",
         &rv::deltaTheta,
         "Calculate the difference between two angles, considering possible jumps of pi.");
 
+     py::module visual = tracking.def_submodule("visual", "Operations applied on class visual vector embeddings.");
+    visual.def("similarity", py::overload_cast<const Eigen::VectorXd&, const Eigen::VectorXd&>(&rv::tracking::visual::similarity),
+    "Calculate the visual similarity (1 - cosine distance) between two visual vectors.", py::arg("visual_features_a"), py::arg("visual_features_b"));
+    visual.def("similarity", py::overload_cast<const Eigen::VectorXd&, const Eigen::MatrixXd&>(&rv::tracking::visual::similarity),
+    "Calculate the visual similarity (1 - cosine distance) between a visual vector and a matrix of visual vectors.", py::arg("visual_features"), py::arg("visual_features_matrix"));
+    visual.def("distance", py::overload_cast<const Eigen::VectorXd&, const Eigen::VectorXd&>(&rv::tracking::visual::distance),
+    "Calculate the visual distance (cosine distance) between two visual vectors.", py::arg("visual_features_a"), py::arg("visual_features_b"));
+    visual.def("distance", py::overload_cast<const Eigen::VectorXd&, const Eigen::MatrixXd&>(&rv::tracking::visual::distance),
+    "Calculate the visual distance (cosine distance) between two visual vectors.", py::arg("visual_features"), py::arg("visual_features_matrix"));
 
      py::module classification = tracking.def_submodule("classification", "Operations applied on class probability vectors.");
 

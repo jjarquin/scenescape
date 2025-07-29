@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: (C) 2022 - 2025 Intel Corporation
+# SPDX-FileCopyrightText: 2022 - 2025 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
 from robot_vision import tracking
@@ -6,8 +6,7 @@ import datetime
 import numpy as np
 from typing import List
 
-# This example shows how a custom tracker can be created using the components from robot_vision.tracking
-
+# This example shows how to reimplement the MultipleObjectTracker C++ class in python using the components from robot_vision.tracking
 
 # Helper function to create an object with simplified interface
 def create_object_at_location(x : float = 0., y: float= 0., z : float= 0., yaw : float = 0., classification=np.full((1,), 1.0)):
@@ -23,7 +22,7 @@ def create_object_at_location(x : float = 0., y: float= 0., z : float= 0., yaw :
 
     return object_
 
-class CustomTracker():
+class MultipleObjectTracker():
     def __init__(self, track_manager_config : tracking.TrackManagerConfig = None, distance_type : tracking.DistanceType = None, distance_threshold : float = 1.0):
         """
             Instantiate the custom tracker with given config and distance parameters
@@ -49,23 +48,63 @@ class CustomTracker():
         self.track_manager.predict(timestamp)
         self.track_manager.correct()
 
-    def _update(self, objects : List[tracking.TrackedObject], timestamp : datetime.datetime, distance_type : tracking.DistanceType, distance_threshold : float):
+    def _update(self, objects : List[tracking.TrackedObject], timestamp : datetime.datetime, distance_type : tracking.DistanceType, distance_threshold : float, probability_threshold = 0.5):
         """
             Update the tracker with the new objects received, this function should be called only
             when there is at least one object
         """
         self.track_manager.predict(timestamp)
-        tracks = self.track_manager.get_tracks()
 
-        assignments, unassigned_tracks, unassigned_objects = self.match_function(tracks, objects, distance_type, distance_threshold)
+        # Split objets in high/low score using probability threshold
+        high_score_objects = []
+        low_score_objects = []
+
+        for object_ in objects:
+            if object_.classification.max() >= probability_threshold:
+                high_score_objects.append(object_)
+            else:
+                low_score_objects.append(object_)
+
+        # 1.- match reliable tracks and high score objects first
+        reliable_tracks = self.track_manager.get_reliable_tracks()
+
+        assignments, unassigned_reliable_tracks_index, unassigned_high_score_objects_index = self.match_function(reliable_tracks, high_score_objects, distance_type, distance_threshold)
 
         for track_index, object_index in assignments:
-          self.track_manager.set_measurement(tracks[track_index].uuid, objects[object_index])
+          self.track_manager.set_measurement(reliable_tracks[track_index].uuid, high_score_objects[object_index])
 
+        # 2.- match reamining reliable tracks and low score objects
+        unassigned_realiable_tracks = [reliable_tracks[index] for index in unassigned_reliable_tracks_index]
+
+        assignments, unassigned_reliable_tracks_index, unassigned_low_score_objects_index = self.match_function(unassigned_realiable_tracks, low_score_objects, distance_type, distance_threshold)
+
+        for track_index, object_index in assignments:
+          self.track_manager.set_measurement(unassigned_realiable_tracks[track_index].uuid, low_score_objects[object_index])
+
+        # 3.- match unreliable tracks and unassigned high score objects
+        unreliable_tracks = self.track_manager.get_unreliable_tracks()
+        unassigned_high_score_objects = [high_score_objects[index] for index in unassigned_high_score_objects_index]
+
+        assignments, unassigned_unreliable_tracks_index, unassigned_high_score_objects_index = self.match_function(unreliable_tracks, unassigned_high_score_objects, distance_type, distance_threshold)
+
+        for track_index, object_index in assignments:
+          self.track_manager.set_measurement(unreliable_tracks[track_index].uuid, unassigned_high_score_objects[object_index])
+
+        # 4.- match suspended tracks and the remaining unassigned high score objects
+        suspended_tracks = self.track_manager.get_suspended_tracks()
+        unassigned_high_score_objects = [high_score_objects[index] for index in unassigned_high_score_objects_index]
+
+        assignments, unassigned_suspended_tracks_index, unassigned_high_score_objects_index = self.match_function(suspended_tracks, unassigned_high_score_objects, distance_type, distance_threshold)
+
+        for track_index, object_index in assignments:
+          self.track_manager.set_measurement(suspended_tracks[track_index].uuid, unassigned_high_score_objects[object_index])
+
+        # Correction step
         self.track_manager.correct()
 
-        for object_index in unassigned_objects:
-          self.track_manager.create_track(objects[object_index], timestamp)
+        # Remaining unassigned high score objects are used to create new unreliable tracks
+        for object_index in unassigned_high_score_objects_index:
+          self.track_manager.create_track(unassigned_high_score_objects[object_index], timestamp)
 
     def get_tracks(self):
         """
@@ -79,7 +118,7 @@ class CustomTracker():
         """
         return self.track_manager.get_reliable_tracks()
 
-    def track(self, objects : List[tracking.TrackedObject], timestamp : datetime.datetime, distance_type=None, distance_threshold=None):
+    def track(self, objects : List[tracking.TrackedObject], timestamp : datetime.datetime, distance_type=None, distance_threshold=None, probability_threshold=0.5):
         """
             execute a tracking step with the given object list.
         """
@@ -89,7 +128,7 @@ class CustomTracker():
         if len(objects) == 0:
           self._zero_measurement_update(timestamp)
         else:
-          self._update(objects, timestamp, distance_type, distance_threshold)
+          self._update(objects, timestamp, distance_type, distance_threshold, probability_threshold)
 
     def __repr__(self):
         return (f'{self.__class__.__name__}(config={self.track_manager_config})')
@@ -101,7 +140,7 @@ tracker_config = tracking.TrackManagerConfig()
 
 tracker_config.max_number_of_unreliable_frames = 2
 tracker_config.non_measurement_frames_dynamic = 3
-tracker_config.non_measurement_frames_static = 4
+tracker_config.non_measurement_frames_static = 3
 
 tracker_config.default_process_noise = 0.001
 tracker_config.default_measurement_noise = 0.01
@@ -109,7 +148,7 @@ tracker_config.motion_models = [tracking.MotionModel.CV, tracking.MotionModel.CA
 distance_type = tracking.DistanceType.Spatial
 distance_threshold = 5.0
 
-tracker = CustomTracker(tracker_config, distance_type, distance_threshold)
+tracker = MultipleObjectTracker(tracker_config, distance_type, distance_threshold)
 
 print(tracker)
 
@@ -128,7 +167,8 @@ std_dev = 0.01
 print(f'Simulating an object starting at location ({x0}, {y0}) and moving with velocity ({vx}, {vy}) for {total_time} seconds.')
 
 
-for t in np.arange(step, total_time + 1e-3, step): # initial time is step
+for k, t in enumerate(np.arange(step, total_time + 1e-3, step)): # initial time is step
+    print(k)
     timestamp = initial_timestamp + datetime.timedelta(seconds = t)
 
     noise_x, noise_y = np.random.normal(mean, std_dev, 2)
@@ -137,7 +177,15 @@ for t in np.arange(step, total_time + 1e-3, step): # initial time is step
     y = y0 + vy * t + noise_y
 
     object_ = create_object_at_location(x=x, y=y, classification=classification_data.classification('class1', 0.6))
-    tracker.track([object_], timestamp, distance_type=tracking.DistanceType.Spatial, distance_threshold=1.0)
+
+    if (k - 5 ) % 20 == 0 or (k - 5 - 1) % 20 == 0 or (k - 5 - 2) % 20 == 0:
+        print("Injecting static unreliable object")
+        fp_object = object_ = create_object_at_location(x=-5, y=-5, classification=classification_data.classification('class2', 0.6))
+        objects = [object_, fp_object]
+    else:
+        objects = [object_]
+
+    tracker.track(objects, timestamp)
 
 tracked_objects = tracker.get_reliable_tracks()
 
@@ -153,3 +201,8 @@ ground_truth_object.vy = vy
 
 print('ground truth object:', ground_truth_object)
 print('classification:', ground_truth_object.classification.round(6))
+
+# The static unreliable object is stored in the suspended tracks list
+print("Suspended tracks:")
+print(tracker.track_manager.get_suspended_tracks())
+

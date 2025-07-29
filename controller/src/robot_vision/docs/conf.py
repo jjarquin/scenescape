@@ -28,8 +28,8 @@ copyright = '2025, Intel Corporation - Apache-2.0'
 author = 'Intel Corporation - Apache-2.0'
 
 # The full version, including alpha/beta/rc tags
-release = '1.1.0'
-version  = '1.1.0~scenescape'
+release = '1.2.0'
+version  = '1.2.0'
 
 # -- General configuration ---------------------------------------------------
 

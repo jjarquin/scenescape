@@ -10,16 +10,18 @@
 #include <vector>
 #include <chrono>
 #include "rv/Utils.hpp"
+#include "rv/tracking/MotionModel.hpp"
 #include "rv/tracking/TrackedObject.hpp"
 #include "rv/tracking/UnscentedKalmanFilter.hpp"
 
 namespace rv {
 namespace tracking {
 
-enum MotionModel{
+enum MotionModelType{
   CV,
   CA,
   CP,
+  CJ,
   CTRV
 };
 
@@ -31,7 +33,7 @@ public:
   /**
    * @brief Initialize the tracker with the current state
    */
-  void initialize(TrackedObject track, const std::chrono::system_clock::time_point &timestamp, double processNoise = 1e-4, double measurementNoise = 1e-2, double initStateCovariance = 1., const std::vector<MotionModel> &motionModels = std::vector<MotionModel>());
+  void initialize(TrackedObject track, const std::chrono::system_clock::time_point &timestamp, double processNoise = 1e-4, double measurementNoise = 1e-2, double initStateCovariance = 1., const std::vector<MotionModelType> &motionModels = std::vector<MotionModelType>());
 
   /**
    * @brief Set measurement and trigger tracking procedure
@@ -122,7 +124,7 @@ private:
    * @brief Calculates the Covariance and the State Estimates of the three models
    */
   static void interaction(std::vector<cv::Mat> const &states,
-                          std::vector<cv::Mat> const &processNoiseCovariance,
+                          std::vector<cv::Mat> const &statesErrorCovariance,
                           cv::Mat const &conditionalProbablity,
                           std::vector<cv::Mat> &covarianceEstimate,
                           std::vector<cv::Mat> &stateEstimates);
@@ -133,9 +135,7 @@ private:
   static void updateModelProbability(cv::Mat const &measurement,
                                      std::vector<cv::Mat> const &predictedMeasurements,
                                      std::vector<cv::Mat> const &measurementNoiseCovariance,
-                                     cv::Mat &modelProbability,
-                                     double maxProbability,
-                                     double minProbability);
+                                     cv::Mat &modelProbability);
 
   /**
     * @brief Calculates a combined state estimate and a covariance estimate after the prediction and correction step is
@@ -158,10 +158,7 @@ private:
   double mKappa{0.0}; // 3 - L
 
   std::vector<cv::Ptr<cv::detail::tracking::UnscentedKalmanFilterMod>> mKalmanFilters;
-  std::vector<cv::Ptr<cv::detail::tracking::UkfSystemModel>> mSystemModels;
-
-  double mMaxProbability{1.};
-  double mMinProbability{0.95};
+  std::vector<cv::Ptr<MotionModel>> mSystemModels;
 
   // Probability of the track of transitioning from the ith model to the jth model
   cv::Mat mTransitionProbability;
@@ -170,6 +167,13 @@ private:
   cv::Mat mModelProbability;
 
   std::size_t mNumberOfModels{0u};
+
+  bool mInitialized{false};
+  bool mPredicted{false};
+
+  double mProcessNoise{1e-4};
+  double mMeasurementNoise{1e-2};
+
 };
 } // namespace tracking
 } // namespace rv

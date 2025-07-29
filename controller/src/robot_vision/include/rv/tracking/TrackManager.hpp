@@ -9,6 +9,11 @@
 #include <unordered_map>
 #include <chrono>
 #include <vector>
+
+#include <boost/uuid/uuid.hpp>
+#include <boost/uuid/uuid_generators.hpp>
+#include <boost/uuid/nil_generator.hpp>
+
 #include "rv/tracking/MultiModelKalmanEstimator.hpp"
 #include "rv/tracking/TrackedObject.hpp"
 
@@ -22,15 +27,11 @@ struct TrackManagerConfig
   uint32_t mMaxNumberOfUnreliableFrames{2};
   uint32_t mReactivationFrames{1};
 
-  double mNonMeasurementTimeDynamic{0.2666};
-  double mNonMeasurementTimeStatic{0.5333};
-  double mMaxUnreliableTime{0.3333};
-
   double mDefaultProcessNoise{1e-3};
   double mDefaultMeasurementNoise{1e-2};
   double mInitStateCovariance{1.};
 
-  std::vector<MotionModel> mMotionModels{MotionModel::CV, MotionModel::CA, MotionModel::CTRV};
+  std::vector<MotionModelType> mMotionModels{MotionModelType::CV, MotionModelType::CA};
 
   std::string toString() const
   {
@@ -41,13 +42,16 @@ struct TrackManagerConfig
 
       switch (motionModel)
       {
-        case MotionModel::CV:
+        case MotionModelType::CV:
           motionModelsText += "CV";
           break;
-        case MotionModel::CA:
+        case MotionModelType::CA:
           motionModelsText += "CA";
           break;
-        case MotionModel::CTRV:
+        case MotionModelType::CJ:
+          motionModelsText += "CJ";
+          break;
+        case MotionModelType::CTRV:
           motionModelsText += "CTRV";
           break;
         default:
@@ -55,9 +59,9 @@ struct TrackManagerConfig
       }
     }
 
-    return "TrackManagerConfig( non_measurement_time_dynamic:" + std::to_string(mNonMeasurementTimeDynamic)
-      + ", non_measurement_time_static:" + std::to_string(mNonMeasurementTimeStatic) + ", max_unreliable_time:"
-      + std::to_string(mMaxUnreliableTime) + ", reactivation_frames:" + std::to_string(mReactivationFrames)
+    return "TrackManagerConfig( non_measurement_frames_dynamic:" + std::to_string(mNonMeasurementFramesDynamic)
+      + ", non_measurement_frames_static:" + std::to_string(mNonMeasurementFramesStatic) + ", max_number_of_unreliable_frames:"
+      + std::to_string(mMaxNumberOfUnreliableFrames) + ", reactivation_frames:" + std::to_string(mReactivationFrames)
       + ", default_process_noise:" + std::to_string(mDefaultProcessNoise) + ", default_measurement_noise:"
       + std::to_string(mDefaultMeasurementNoise) + ", init_state_covariance:"
       + std::to_string(mInitStateCovariance) + motionModelsText + ")";
@@ -67,7 +71,7 @@ struct TrackManagerConfig
 /**
  * @brief TrackManager: Provides interfaces to create new tracks and assign measurements to existing tracks
  *
- * The TrackManager module maintains tracks as a map of <Id, KalmanEstimator>
+ * The TrackManager module maintains tracks as a map of <boost::uuids::uuid, KalmanEstimator>
  * It also provides the functionality of Reliable/unreliable track, this reduces the number of false positives
  * and allows the user to work only with the reliable objects. An object becomes reliable when at least
  * mMaxNumberOfUnreliableFrames frames have been measured.
@@ -99,7 +103,7 @@ public:
    * @brief Create a new track with the object information
    *
    */
-  Id createTrack(TrackedObject object, const std::chrono::system_clock::time_point &timestamp);
+  boost::uuids::uuid createTrack(TrackedObject object, const std::chrono::system_clock::time_point &timestamp);
 
   /**
    * @brief Trigger state estimation update
@@ -118,7 +122,7 @@ public:
    *
    * The measurement won't be applied inmediately, it will be applied during the next correct measurement step
    */
-  void setMeasurement(const Id &id, const TrackedObject &measurement);
+  void setMeasurement(const boost::uuids::uuid &uuid, const TrackedObject &measurement);
 
   /**
    * @brief Triggers the correct measurements step
@@ -130,13 +134,13 @@ public:
    * @brief Access a specific track
    *
    */
-  TrackedObject getTrack(const Id &id);
+  TrackedObject getTrack(const boost::uuids::uuid &uuid);
 
   /**
    * @brief Access a specific kalman estimator
    *
    */
-  MultiModelKalmanEstimator getKalmanEstimator(const Id &id);
+  MultiModelKalmanEstimator getKalmanEstimator(const boost::uuids::uuid &uuid);
 
   /**
    * @brief Returns a list of tracked objects states
@@ -149,43 +153,38 @@ public:
   std::vector<TrackedObject> getDriftingTracks();
 
   /**
-   * @brief Check wether the given Id is registered in the track manager
+   * @brief Check wether the given boost::uuids::uuid is registered in the track manager
    *
-   * @param id
+   * @param uuid
    * @return true
    * @return false
    */
-  bool hasId(const Id &id);
+  bool hasUuid(const boost::uuids::uuid &uuid);
 
   /**
    * @brief Delete an existing track
    */
-  void deleteTrack(const Id &id);
+  void deleteTrack(const boost::uuids::uuid &uuid);
 
   /**
    * @brief Sets a track into suspended mode
    */
-  void suspendTrack(const Id &id);
+  void suspendTrack(const boost::uuids::uuid &uuid);
 
   /**
    * @brief Moves a track from suspended mode into non reliable tracks
    */
-  void reactivateTrack(const Id &id);
+  void reactivateTrack(const boost::uuids::uuid &uuid);
 
   /**
    * @brief Track has been measured for at least mMaxNumberOfUnreliableFrames
    */
-  bool isReliable(const Id &id);
+  bool isReliable(const boost::uuids::uuid &uuid);
 
   /**
    * @brief Track is in the mSuspendedKalmanEstimators map
    */
-  bool isSuspended(const Id &id);
-
-  /**
-   * @brief Update frame_based_parameters based on the input frame_rate
-   */
-  void updateTrackerConfig(int camera_frame_rate);
+  bool isSuspended(const boost::uuids::uuid &uuid);
 
   inline TrackManagerConfig getConfig()
   {
@@ -193,13 +192,13 @@ public:
   }
 
 private:
-  std::unordered_map<Id, MultiModelKalmanEstimator> mKalmanEstimators;
-  std::unordered_map<Id, MultiModelKalmanEstimator> mSuspendedKalmanEstimators;
-  std::unordered_map<Id, TrackedObject> mMeasurementMap;
-  std::unordered_map<Id, uint32_t> mNonMeasurementFrames;
-  std::unordered_map<Id, uint32_t> mNumberOfTrackedFrames;
+  std::unordered_map<boost::uuids::uuid, MultiModelKalmanEstimator> mKalmanEstimators;
+  std::unordered_map<boost::uuids::uuid, MultiModelKalmanEstimator> mSuspendedKalmanEstimators;
+  std::unordered_map<boost::uuids::uuid, TrackedObject> mMeasurementMap;
+  std::unordered_map<boost::uuids::uuid, uint32_t> mNonMeasurementFrames;
+  std::unordered_map<boost::uuids::uuid, uint32_t> mNumberOfTrackedFrames;
 
-  Id mCurrentId = 0;
+  boost::uuids::random_generator mUuidGenerator;
 
   bool mAutoIdGeneration{true};
 

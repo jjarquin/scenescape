@@ -3,8 +3,8 @@
 
 #pragma once
 
+#include "rv/tracking/MotionModel.hpp"
 #include <opencv2/imgproc/imgproc.hpp>
-#include <opencv2/tracking/kalman_filters.hpp>
 
 namespace rv {
 namespace tracking {
@@ -18,7 +18,7 @@ namespace tracking {
  *
  * See "Comparison and evaluation of advanced motion models for vehicle tracking".
  */
-class CVModel : public cv::detail::tracking::UkfSystemModel
+class CVModel : public MotionModel
 {
 public:
   /**
@@ -31,6 +31,12 @@ public:
     * @brief State measurement function for the Constant Velocity Model
     */
   void measurementFunction(const cv::Mat &x_k, const cv::Mat &n_k, cv::Mat &z_k) override;
+
+  cv::Mat processNoiseCovariance(double processNoise, double deltaT, int type) override;
+
+  cv::Mat measurementNoiseCovariance(double measurementNoise, double deltaT, int type) override;
+
+  double timeVarying () override {return false;}
 };
 } // namespace tracking
 } // namespace rv

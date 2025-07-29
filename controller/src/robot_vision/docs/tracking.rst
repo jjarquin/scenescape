@@ -32,5 +32,6 @@ Classes for implementing state filtering and multiple oblect tracking based on t
     TrackTracker
     ClassificationData
     match
-    angle_difference
+    mahalanobis_distance
+    association_probability
     delta_theta

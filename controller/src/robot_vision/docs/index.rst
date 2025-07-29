@@ -11,3 +11,4 @@ Algorithms for sensor fusion, environment perception, object detection and track
 
    tracking
    classification
+   visual

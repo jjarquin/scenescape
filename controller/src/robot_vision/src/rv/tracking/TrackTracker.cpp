@@ -26,9 +26,9 @@ void TrackTracker::track(std::vector<tracking::TrackedObject> trackedObjects, co
   // 2. - Update measurements - set measurement
   for (const auto &trackedObject : trackedObjects)
   {
-    if (mTrackManager.hasId(trackedObject.id))
+    if (mTrackManager.hasUuid(trackedObject.uuid))
     {
-      mTrackManager.setMeasurement(trackedObject.id, trackedObject);
+      mTrackManager.setMeasurement(trackedObject.uuid, trackedObject);
     }
   }
 
@@ -38,7 +38,7 @@ void TrackTracker::track(std::vector<tracking::TrackedObject> trackedObjects, co
   // 3. - Create new tracks
   for (const auto &trackedObject : trackedObjects)
   {
-    if (!mTrackManager.hasId(trackedObject.id))
+    if (!mTrackManager.hasUuid(trackedObject.uuid))
     {
       mTrackManager.createTrack(trackedObject, timestamp);
     }

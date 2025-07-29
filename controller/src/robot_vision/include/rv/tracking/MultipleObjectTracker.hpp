@@ -17,12 +17,12 @@ class MultipleObjectTracker
 {
 public:
   MultipleObjectTracker()
-  : mDistanceType(DistanceType::MultiClassEuclidean), mDistanceThreshold(5.0)
+  : mDistanceType(DistanceType::Spatial), mDistanceThreshold(5.0)
   {
   }
 
   MultipleObjectTracker(TrackManagerConfig const &config)
-    : mTrackManager(config), mDistanceType(DistanceType::MultiClassEuclidean), mDistanceThreshold(5.0)
+    : mTrackManager(config), mDistanceType(DistanceType::Spatial), mDistanceThreshold(5.0)
   {
   }
 
@@ -33,6 +33,7 @@ public:
 
   MultipleObjectTracker(const MultipleObjectTracker &) = delete;
   MultipleObjectTracker &operator=(const MultipleObjectTracker &) = delete;
+
   /**
    * @brief Sets the list of measurements and triggers the tracking procedure
    *
@@ -66,15 +67,6 @@ public:
   inline std::vector<TrackedObject> getTracks()
   {
     return mTrackManager.getTracks();
-  }
-
-  /**
-   * @brief Updates the frame-based params in mTrackManager
-   *
-   */
-  inline void updateTrackerParams(int camera_frame_rate)
-  {
-    mTrackManager.updateTrackerConfig(camera_frame_rate);
   }
 
   /**

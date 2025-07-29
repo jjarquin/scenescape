@@ -12,7 +12,7 @@ include(CMakePackageConfigHelpers)
 
 project(RobotVision VERSION 1.1.0)
 
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
 set(PROJECT_NAMESPACE rv)
 
 set(ROBOT_VISION_BUILD_INSTALL_PREFIX ${CMAKE_CURRENT_BINARY_DIR}/install)
@@ -33,6 +33,7 @@ set(PROJECT_SOURCE_LIST
   ${CMAKE_SOURCE_DIR}/src/rv/tracking/CAModel.cpp
   ${CMAKE_SOURCE_DIR}/src/rv/tracking/CVModel.cpp
   ${CMAKE_SOURCE_DIR}/src/rv/tracking/CPModel.cpp
+  ${CMAKE_SOURCE_DIR}/src/rv/tracking/ConstantJerk.cpp
   ${CMAKE_SOURCE_DIR}/src/rv/tracking/CTRVModel.cpp
   ${CMAKE_SOURCE_DIR}/src/rv/tracking/UnscentedKalmanFilter.cpp
   ${CMAKE_SOURCE_DIR}/src/rv/tracking/ObjectMatching.cpp
@@ -67,7 +68,7 @@ target_link_libraries(tracking PUBLIC ${PROJECT_NAME})
 pybind11_add_module(types MODULE  ${CMAKE_SOURCE_DIR}/python/src/robot_vision/extensions/types.cpp)
 target_link_libraries(types PUBLIC ${PROJECT_NAME})
 
-set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_STANDARD 14)
+set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_STANDARD 17)
 
 #####################################################################
 # install

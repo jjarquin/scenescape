@@ -123,6 +123,11 @@ public:
     errorCov = errorCov.clone();
   }
 
+  void setProcessNoiseCov(cv::Mat processNoiseCovariance)
+  {
+    processNoiseCov = processNoiseCovariance;
+  }
+
   //  Get the state estimate
   Mat getState() const override;
 };

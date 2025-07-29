@@ -46,7 +46,7 @@ class UUIDManager:
 
     @param  tracked_objects  The objects currently tracked by the tracker
     """
-    active_tracks = [tracked_object.id for tracked_object in tracked_objects]
+    active_tracks = [tracked_object.uuid for tracked_object in tracked_objects]
     inactive_tracks = []
     new_active_ids = {}
     with self.active_ids_lock:
